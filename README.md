@@ -13,8 +13,8 @@ import { createCollection } from "@tanstack/react-db";
 import { couchDBCollectionOptions } from "tanstack-couch-db-collection";
 import PouchDB from "pouchdb";
 
-// This could be a local or a hosted database. If you want a local and
-// hosted DB, you can let couch DB handle syncing between databases
+// This could be a local or a remote database. If you want a local and
+// remote DB, you can let couch DB handle syncing between databases
 // https://pouchdb.com/api.html#sync
 const db = new PouchDB("local-db");
 
@@ -24,7 +24,7 @@ const schema = z.object({
 });
 
 export const usersCollection = createCollection(
-  couchDBCollectionOptions({
+  couchDBCollectionOptions<typeof schema._output>({
     db: db,
     schema: schema,
   }),
