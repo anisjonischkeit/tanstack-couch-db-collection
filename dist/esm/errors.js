@@ -47,12 +47,30 @@ class NoIDProvidedError extends CouchDBCollectionError {
     this.name = `NoIDProvidedForUpdateError`;
   }
 }
+class NoRevFoundForDocumentError extends CouchDBCollectionError {
+  constructor(object) {
+    super(
+      `_rev field was not found for ${object}. This likely means the value from the database hasn't been synced to the TanstackDB collection`
+    );
+    this.name = `NoRevFoundForDocumentError`;
+  }
+}
+class RevDefinedOnInsert extends CouchDBCollectionError {
+  constructor(object) {
+    super(
+      `_rev field was defined on insert of ${object}. This field is only allowed on updates and deletes`
+    );
+    this.name = `RevDefinedOnInsert`;
+  }
+}
 export {
   CouchDBCollectionError,
   CouchDBRequestFailedError,
   DocumentNotFoundError,
   InitialSyncFailedError,
   NoIDProvidedError,
+  NoRevFoundForDocumentError,
+  RevDefinedOnInsert,
   TimeoutWaitingForDeleteError,
   TimeoutWaitingForInsertError,
   TimeoutWaitingForUpdateError

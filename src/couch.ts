@@ -8,26 +8,38 @@ import {
   DocumentNotFoundError,
   InitialSyncFailedError,
   NoIDProvidedError,
+  NoRevFoundForDocumentError,
+  RevDefinedOnInsert,
   TimeoutWaitingForDeleteError,
   TimeoutWaitingForInsertError,
   TimeoutWaitingForUpdateError,
 } from "./errors";
 
-type PouchDBCoreDoc = PouchDB.Core.ExistingDocument<PouchDB.Core.AllDocsMeta>;
+export type CouchDBCollectionDoc = PouchDB.Core.Document<
+  PouchDB.Core.AllDocsMeta &
+    PouchDB.Core.IdMeta &
+    // Revision ID is nullable here since on an initial insert, there will be no
+    // _rev field, since that field is set by couch db. The optimistic state will
+    // not have this _rev field until data is synced back to the Tanstack collection
+    // from couchdb
+    Partial<PouchDB.Core.RevisionIdMeta>
+>;
 
 export interface CouchDBCollectionConfig<
   TExplicit extends unknown = unknown,
   TSchema extends StandardSchemaV1 = never,
-  TFallback extends PouchDBCoreDoc = PouchDBCoreDoc,
+  TFallback extends CouchDBCollectionDoc = CouchDBCollectionDoc,
 > extends Omit<
     CollectionConfig<
-      ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc
+      ResolveType<TExplicit, TSchema, TFallback> & CouchDBCollectionDoc,
+      string,
+      TSchema
     >,
     "onInsert" | "onUpdate" | "onDelete" | "sync" | "getKey"
   > {
   couch: {
     db: PouchDB.Database;
-    filter?: (doc: PouchDBCoreDoc & object) => boolean;
+    filter?: (doc: CouchDBCollectionDoc & object) => boolean;
     attachments?: boolean;
     binary?: boolean;
     mutationTimeout?: number;
@@ -46,7 +58,7 @@ const createChangeTrackingId = (id: string, rev: string) => `${id}:${rev}`;
 export function couchDBCollectionOptions<
   TExplicit extends unknown = unknown,
   TSchema extends StandardSchemaV1 = never,
-  TFallback extends PouchDBCoreDoc = PouchDBCoreDoc,
+  TFallback extends CouchDBCollectionDoc = CouchDBCollectionDoc,
 >({
   couch: {
     db,
@@ -57,7 +69,9 @@ export function couchDBCollectionOptions<
   },
   ...config
 }: CouchDBCollectionConfig<TExplicit, TSchema, TFallback>): CollectionConfig<
-  ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc
+  ResolveType<TExplicit, TSchema, TFallback> & CouchDBCollectionDoc,
+  string,
+  TSchema
 > {
   const seenDocumentIds = new Store<Set<string>>(new Set());
   const awaitDocumentUpdate = (trackingId: string): Promise<boolean> => {
@@ -77,7 +91,9 @@ export function couchDBCollectionOptions<
   };
 
   const sync: CollectionConfig<
-    ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc
+    ResolveType<TExplicit, TSchema, TFallback> & CouchDBCollectionDoc,
+    string,
+    TSchema
   >[`sync`][`sync`] = (params) => {
     const {
       begin,
@@ -91,13 +107,15 @@ export function couchDBCollectionOptions<
 
     const eventBuffer: Array<{
       type: OperationType;
-      value: ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc;
+      value: ResolveType<TExplicit, TSchema, TFallback> & CouchDBCollectionDoc;
     }> = [];
     let isInitialSyncComplete = false;
 
     // 1. Initialize connection to sync engine
     const pouchChangeListener = db
-      .changes<ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc>({
+      .changes<
+        ResolveType<TExplicit, TSchema, TFallback> & CouchDBCollectionDoc
+      >({
         since: "now",
         live: true,
         include_docs: true,
@@ -219,8 +237,11 @@ export function couchDBCollectionOptions<
 
           const doc = collection.get(mutation.changes._id);
           if (!doc) throw new DocumentNotFoundError(mutation.changes._id);
+          if (!doc._rev) throw new NoRevFoundForDocumentError(doc);
+          const id = doc._id;
+          const rev = doc._rev;
 
-          await handleCouchUpdate(async () => db.remove(doc._id, doc._rev));
+          await handleCouchUpdate(() => db.remove(id, rev));
         }),
         new TimeoutWaitingForDeleteError(
           transaction.mutations.map((mut) => mut.changes._id!),
@@ -250,8 +271,10 @@ export function couchDBCollectionOptions<
         transaction.mutations.map(async (mutation) => {
           if (!mutation.changes._id)
             throw new NoIDProvidedError(mutation.changes);
+          if (mutation.changes._rev)
+            throw new RevDefinedOnInsert(mutation.changes);
 
-          await handleCouchUpdate(async () => db.put(mutation.changes));
+          await handleCouchUpdate(() => db.put(mutation.changes));
         }),
 
         new TimeoutWaitingForInsertError(

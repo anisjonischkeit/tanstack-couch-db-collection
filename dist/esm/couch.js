@@ -1,5 +1,5 @@
 import { Store } from "@tanstack/store";
-import { TimeoutWaitingForInsertError, NoIDProvidedError, TimeoutWaitingForUpdateError, DocumentNotFoundError, TimeoutWaitingForDeleteError, CouchDBCollectionError, CouchDBRequestFailedError, InitialSyncFailedError } from "./errors.js";
+import { TimeoutWaitingForInsertError, NoIDProvidedError, RevDefinedOnInsert, TimeoutWaitingForUpdateError, DocumentNotFoundError, TimeoutWaitingForDeleteError, NoRevFoundForDocumentError, CouchDBCollectionError, CouchDBRequestFailedError, InitialSyncFailedError } from "./errors.js";
 const rejectAfterSleep = (sleepTime, error) => new Promise((_resolve, reject) => {
   setTimeout(() => {
     reject(error);
@@ -130,7 +130,10 @@ function couchDBCollectionOptions({
             throw new NoIDProvidedError(mutation.changes);
           const doc = collection.get(mutation.changes._id);
           if (!doc) throw new DocumentNotFoundError(mutation.changes._id);
-          await handleCouchUpdate(async () => db.remove(doc._id, doc._rev));
+          if (!doc._rev) throw new NoRevFoundForDocumentError(doc);
+          const id = doc._id;
+          const rev = doc._rev;
+          await handleCouchUpdate(() => db.remove(id, rev));
         }),
         new TimeoutWaitingForDeleteError(
           transaction.mutations.map((mut) => mut.changes._id)
@@ -158,7 +161,9 @@ function couchDBCollectionOptions({
         transaction.mutations.map(async (mutation) => {
           if (!mutation.changes._id)
             throw new NoIDProvidedError(mutation.changes);
-          await handleCouchUpdate(async () => db.put(mutation.changes));
+          if (mutation.changes._rev)
+            throw new RevDefinedOnInsert(mutation.changes);
+          await handleCouchUpdate(() => db.put(mutation.changes));
         }),
         new TimeoutWaitingForInsertError(
           transaction.mutations.map((mut) => mut.changes._id)

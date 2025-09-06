@@ -132,7 +132,10 @@ function couchDBCollectionOptions({
             throw new errors.NoIDProvidedError(mutation.changes);
           const doc = collection.get(mutation.changes._id);
           if (!doc) throw new errors.DocumentNotFoundError(mutation.changes._id);
-          await handleCouchUpdate(async () => db.remove(doc._id, doc._rev));
+          if (!doc._rev) throw new errors.NoRevFoundForDocumentError(doc);
+          const id = doc._id;
+          const rev = doc._rev;
+          await handleCouchUpdate(() => db.remove(id, rev));
         }),
         new errors.TimeoutWaitingForDeleteError(
           transaction.mutations.map((mut) => mut.changes._id)
@@ -160,7 +163,9 @@ function couchDBCollectionOptions({
         transaction.mutations.map(async (mutation) => {
           if (!mutation.changes._id)
             throw new errors.NoIDProvidedError(mutation.changes);
-          await handleCouchUpdate(async () => db.put(mutation.changes));
+          if (mutation.changes._rev)
+            throw new errors.RevDefinedOnInsert(mutation.changes);
+          await handleCouchUpdate(() => db.put(mutation.changes));
         }),
         new errors.TimeoutWaitingForInsertError(
           transaction.mutations.map((mut) => mut.changes._id)

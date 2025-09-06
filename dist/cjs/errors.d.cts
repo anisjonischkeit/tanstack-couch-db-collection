@@ -23,3 +23,9 @@ export declare class DocumentNotFoundError extends CouchDBCollectionError {
 export declare class NoIDProvidedError extends CouchDBCollectionError {
     constructor(object: object);
 }
+export declare class NoRevFoundForDocumentError extends CouchDBCollectionError {
+    constructor(object: object);
+}
+export declare class RevDefinedOnInsert extends CouchDBCollectionError {
+    constructor(object: object);
+}

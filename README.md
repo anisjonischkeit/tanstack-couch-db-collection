@@ -24,7 +24,7 @@ const schema = z.object({
 });
 
 export const usersCollection = createCollection(
-  couchDBCollectionOptions<typeof schema._output>({
+  couchDBCollectionOptions({
     couch: {
       db: db,
       // Optional config and defaults
