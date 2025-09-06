@@ -25,8 +25,13 @@ export interface CouchDBCollectionConfig<
     >,
     "onInsert" | "onUpdate" | "onDelete" | "sync" | "getKey"
   > {
-  db: PouchDB.Database;
-  mutationTimeout?: number;
+  couch: {
+    db: PouchDB.Database;
+    filter?: (doc: PouchDBCoreDoc & object) => boolean;
+    attachments?: boolean;
+    binary?: boolean;
+    mutationTimeout?: number;
+  };
 }
 
 const rejectAfterSleep = (sleepTime: number, error: CouchDBCollectionError) =>
@@ -42,39 +47,18 @@ export function couchDBCollectionOptions<
   TExplicit extends unknown = unknown,
   TSchema extends StandardSchemaV1 = never,
   TFallback extends PouchDBCoreDoc = PouchDBCoreDoc,
->(
-  config: CouchDBCollectionConfig<TExplicit, TSchema, TFallback>,
-): CollectionConfig<
+>({
+  couch: {
+    db,
+    mutationTimeout = 10_000,
+    filter = (doc) => !doc._id.startsWith("_"),
+    attachments = false,
+    binary = false,
+  },
+  ...config
+}: CouchDBCollectionConfig<TExplicit, TSchema, TFallback>): CollectionConfig<
   ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc
 > {
-  const createWriteData = (change: {
-    deleted?: boolean;
-    doc: ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc;
-  }): {
-    type: OperationType;
-    value: ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc;
-  } => {
-    if (change.deleted) {
-      return {
-        type: "delete",
-        value: change.doc,
-      };
-    } else {
-      // Check the revision number to distinguish insert from update
-      if (change.doc!._rev.startsWith("1-")) {
-        return {
-          type: "insert",
-          value: change.doc,
-        };
-      } else {
-        return {
-          type: "update",
-          value: change.doc,
-        };
-      }
-    }
-  };
-
   const seenDocumentIds = new Store<Set<string>>(new Set());
   const awaitDocumentUpdate = (trackingId: string): Promise<boolean> => {
     if (seenDocumentIds.state.has(trackingId)) return Promise.resolve(true);
@@ -95,17 +79,30 @@ export function couchDBCollectionOptions<
   const sync: CollectionConfig<
     ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc
   >[`sync`][`sync`] = (params) => {
-    const { begin, write, commit, markReady, collection } = params;
+    const {
+      begin,
+      write: unfilteredWrite,
+      commit,
+      markReady,
+      collection,
+    } = params;
+    const write: typeof unfilteredWrite = (event) =>
+      filter(event.value) ? unfilteredWrite(event) : undefined;
 
-    const eventBuffer: Array<any> = [];
+    const eventBuffer: Array<{
+      type: OperationType;
+      value: ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc;
+    }> = [];
     let isInitialSyncComplete = false;
 
     // 1. Initialize connection to sync engine
-    const pouchChangeListener = config.db
+    const pouchChangeListener = db
       .changes<ResolveType<TExplicit, TSchema, TFallback> & PouchDBCoreDoc>({
         since: "now",
         live: true,
         include_docs: true,
+        attachments,
+        binary,
       })
       .on("change", (change) => {
         if (!change.doc) {
@@ -115,9 +112,13 @@ export function couchDBCollectionOptions<
         }
         const doc = change.doc;
 
+        let operationType: OperationType = "update";
+        if (change.deleted) operationType = "delete";
+        else if (collection.get(doc._id) == null) operationType = "insert";
+
         if (!isInitialSyncComplete) {
           // Buffer events during initial sync to prevent race conditions
-          eventBuffer.push(change);
+          eventBuffer.push({ type: operationType, value: doc });
           return;
         }
 
@@ -126,12 +127,7 @@ export function couchDBCollectionOptions<
         seenDocumentIds.setState((prevState) => {
           return prevState.add(createChangeTrackingId(doc._id, doc._rev));
         });
-        write(
-          createWriteData({
-            deleted: change.deleted,
-            doc: doc,
-          }),
-        );
+        write({ type: operationType, value: doc });
 
         commit();
       });
@@ -139,10 +135,12 @@ export function couchDBCollectionOptions<
     // 3. Perform initial data fetch
     async function initialSync() {
       try {
-        const data = await config.db.allDocs<
+        const data = await db.allDocs<
           ResolveType<TExplicit, TSchema, TFallback>
         >({
           include_docs: true,
+          attachments,
+          binary,
         });
 
         begin(); // Start a transaction
@@ -203,8 +201,7 @@ export function couchDBCollectionOptions<
     error: CouchDBCollectionError,
   ) =>
     Promise.race([
-      config.mutationTimeout !== null &&
-        rejectAfterSleep(config.mutationTimeout || 10000, error),
+      mutationTimeout && rejectAfterSleep(mutationTimeout, error),
       Promise.all(ps),
     ]);
 
@@ -212,7 +209,7 @@ export function couchDBCollectionOptions<
     id: config.id,
     getKey: (item) => item._id,
     schema: config.schema,
-    sync: { sync },
+    sync: { sync, rowUpdateMode: "full" },
     onDelete: async ({ transaction, collection }) => {
       // We must get the doc as a deletion requires a revision id
       await promiseAllWithTimeout(
@@ -223,9 +220,7 @@ export function couchDBCollectionOptions<
           const doc = collection.get(mutation.changes._id);
           if (!doc) throw new DocumentNotFoundError(mutation.changes._id);
 
-          await handleCouchUpdate(async () =>
-            config.db.remove(doc._id, doc._rev),
-          );
+          await handleCouchUpdate(async () => db.remove(doc._id, doc._rev));
         }),
         new TimeoutWaitingForDeleteError(
           transaction.mutations.map((mut) => mut.changes._id!),
@@ -242,7 +237,7 @@ export function couchDBCollectionOptions<
           if (!doc) throw new DocumentNotFoundError(mutation.changes._id);
 
           await handleCouchUpdate(() =>
-            config.db.put(transaction.mutations[0].changes),
+            db.put({ ...mutation.changes, _rev: doc._rev }),
           );
         }),
         new TimeoutWaitingForUpdateError(
@@ -256,7 +251,7 @@ export function couchDBCollectionOptions<
           if (!mutation.changes._id)
             throw new NoIDProvidedError(mutation.changes);
 
-          await handleCouchUpdate(async () => config.db.put(mutation.changes));
+          await handleCouchUpdate(async () => db.put(mutation.changes));
         }),
 
         new TimeoutWaitingForInsertError(

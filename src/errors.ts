@@ -3,7 +3,7 @@ import { TanStackDBError } from "@tanstack/db";
 export class CouchDBCollectionError extends TanStackDBError {
   constructor(message: string) {
     super(message);
-    this.name = `ElectricDBCollectionError`;
+    this.name = `CouchDBCollectionError`;
   }
 }
 
@@ -30,7 +30,7 @@ export class TimeoutWaitingForUpdateError extends CouchDBCollectionError {
 
 export class TimeoutWaitingForInsertError extends CouchDBCollectionError {
   constructor(ids: string[]) {
-    super(`Timeout waiting for delete of ids: ${ids}`);
+    super(`Timeout waiting for insert of ids: ${ids}`);
     this.name = `TimeoutWaitingForInsertError`;
   }
 }
@@ -45,7 +45,7 @@ export class TimeoutWaitingForDeleteError extends CouchDBCollectionError {
 export class DocumentNotFoundError extends CouchDBCollectionError {
   constructor(id: string) {
     super(`No document was found for id ${id}`);
-    this.name = `NoIDProvidedForUpdateError`;
+    this.name = `DocumentNotFoundError`;
   }
 }
 

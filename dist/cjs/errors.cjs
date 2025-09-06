@@ -4,7 +4,7 @@ const db = require("@tanstack/db");
 class CouchDBCollectionError extends db.TanStackDBError {
   constructor(message) {
     super(message);
-    this.name = `ElectricDBCollectionError`;
+    this.name = `CouchDBCollectionError`;
   }
 }
 class CouchDBRequestFailedError extends CouchDBCollectionError {
@@ -27,7 +27,7 @@ class TimeoutWaitingForUpdateError extends CouchDBCollectionError {
 }
 class TimeoutWaitingForInsertError extends CouchDBCollectionError {
   constructor(ids) {
-    super(`Timeout waiting for delete of ids: ${ids}`);
+    super(`Timeout waiting for insert of ids: ${ids}`);
     this.name = `TimeoutWaitingForInsertError`;
   }
 }
@@ -40,7 +40,7 @@ class TimeoutWaitingForDeleteError extends CouchDBCollectionError {
 class DocumentNotFoundError extends CouchDBCollectionError {
   constructor(id) {
     super(`No document was found for id ${id}`);
-    this.name = `NoIDProvidedForUpdateError`;
+    this.name = `DocumentNotFoundError`;
   }
 }
 class NoIDProvidedError extends CouchDBCollectionError {

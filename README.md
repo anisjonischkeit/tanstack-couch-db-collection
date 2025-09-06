@@ -25,7 +25,15 @@ const schema = z.object({
 
 export const usersCollection = createCollection(
   couchDBCollectionOptions<typeof schema._output>({
-    db: db,
+    couch: {
+      db: db,
+      // Optional config and defaults
+
+      // mutationTimeout: 10_000,
+      // filter: (doc) => !doc._id.startsWith("_"),
+      // attachments: false,
+      // binary: false,
+    },
     schema: schema,
   }),
 );
@@ -57,7 +65,7 @@ const userPosts = createLiveQueryCollection((q) =>
   q
     .from({ user: usersCollection })
     // Posts can be another couchDB collection, or any other kind of collection
-    .join({ post: postsCollection }, ({ couch, post }) =>
+    .join({ post: postsCollection }, ({ user, post }) =>
       eq(user._id, post.userId),
     ),
 );
