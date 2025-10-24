@@ -13,6 +13,7 @@ function couchDBCollectionOptions({
     db,
     mutationTimeout = 1e4,
     filter = (doc) => !doc._id.startsWith("_"),
+    changeListenerOptions = {},
     attachments = false,
     binary = false
   },
@@ -47,7 +48,8 @@ function couchDBCollectionOptions({
       live: true,
       include_docs: true,
       attachments,
-      binary
+      binary,
+      ...changeListenerOptions
     }).on("change", (change) => {
       if (!change.doc) {
         throw new errors.CouchDBCollectionError(

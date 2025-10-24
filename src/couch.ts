@@ -41,6 +41,7 @@ export interface CouchDBCollectionConfig<
     db: PouchDB.Database;
     filter?: (doc: CouchDBCollectionDoc & object) => boolean;
     attachments?: boolean;
+    changeListenerOptions?: Partial<PouchDB.Core.ChangesOptions>;
     binary?: boolean;
     mutationTimeout?: number;
   };
@@ -64,6 +65,7 @@ export function couchDBCollectionOptions<
     db,
     mutationTimeout = 10_000,
     filter = (doc) => !doc._id.startsWith("_"),
+    changeListenerOptions = {},
     attachments = false,
     binary = false,
   },
@@ -121,6 +123,7 @@ export function couchDBCollectionOptions<
         include_docs: true,
         attachments,
         binary,
+        ...changeListenerOptions,
       })
       .on("change", (change) => {
         if (!change.doc) {
